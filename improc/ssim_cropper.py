@@ -111,3 +111,11 @@ class ImageCropper:
         self.rects.append([x1, y1, x2, y2])
         self.canvas.delete(self.rect)
         self.root.destroy()
+    
+    @property
+    def rects(self):
+        return self._rects
+
+    @rects.setter
+    def rects(self, value):
+        self._rects = value
