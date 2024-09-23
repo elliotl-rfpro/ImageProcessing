@@ -8,8 +8,8 @@ from improc.core.visualisation import calculate_ssim, view_image, reshape_img
 
 if __name__ == '__main__':
     # Load the images
-    fpath1 = 'C:/Users/ElliotLondon/Documents/PythonLocal/ImageProcessing/examples/roadsign1.png'
-    fpath2 = 'C:/Users/ElliotLondon/Documents/PythonLocal/ImageProcessing/examples/roadsign2.png'
+    fpath1 = 'C:/Users/ElliotLondon/Documents/PythonLocal/ImageProcessing/improc/examples/roadsign1.png'
+    fpath2 = 'C:/Users/ElliotLondon/Documents/PythonLocal/ImageProcessing/improc/examples/roadsign2.png'
     img1, img2 = read_images(fpath1, fpath2)
 
     # Change from BGR to RGB (cv2 uses BGR by default...)
