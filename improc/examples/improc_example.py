@@ -2,9 +2,8 @@
 import cv2
 import matplotlib.pyplot as plt
 
-from improc.core.improc import read_images, process_images, simulate_basic_isp
-from improc.core.visualisation import calculate_ssim, view_image, reshape_img
-
+from improc.improc import read_images, process_images, simulate_basic_isp
+from improc.visualisation import calculate_ssim
 
 if __name__ == '__main__':
     # Load the images
