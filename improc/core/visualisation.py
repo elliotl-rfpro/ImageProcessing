@@ -4,8 +4,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from skimage.metrics import structural_similarity as ssim
 
-from utils.validators import *
-from core.improc import get_colour_histograms, reshape_img
+from improc.utils.validators import *
+from improc.core.improc import get_colour_histograms, reshape_img
 
 sns.set(palette="dark", font_scale=1.1, color_codes=True)
 sns.set_style('darkgrid', {'axes.linewidth': 1, 'axes.edgecolor': 'black'})

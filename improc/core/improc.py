@@ -3,7 +3,7 @@ import OpenEXR
 import Imath
 import cv2
 
-from utils.validators import *
+from improc.utils.validators import *
 
 
 @validate_file_path

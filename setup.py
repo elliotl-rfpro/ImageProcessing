@@ -11,7 +11,7 @@ setup(
     name='improcrf',
     version='0.1.0',
     packages=find_packages(),
-    install_requires=parse_requirements('requirements.txt'),
+    install_requires=parse_requirements('C:/Users/ElliotLondon/Documents/PythonLocal/ImageProcessing/requirements.txt'),
     entry_points={
         'console_scripts': [
             # Define any command-line scripts here
