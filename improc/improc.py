@@ -2,6 +2,7 @@
 import OpenEXR
 import Imath
 import cv2
+from PIL import Image
 
 from improc.utils.validators import *
 
@@ -12,10 +13,10 @@ def read_exr(file_path: str) -> np.ndarray:
     Function for reading .exr files.
 
     Parameters:
-    file_path (str): Path to the .exr file.
+        file_path (str): Path to the .exr file.
 
     Returns:
-    numpy.ndarray: Image read from the .exr file.
+        numpy.ndarray: Image read from the .exr file.
     """
     exr_file = OpenEXR.InputFile(file_path)
     header = exr_file.header()
@@ -34,17 +35,54 @@ def read_exr(file_path: str) -> np.ndarray:
     return image
 
 
+def exr_to_png(input_path: str, output_path: str) -> None:
+    """
+    Convert an EXR file to PNG format.
+
+    Parameters:
+        input_path (str): Path to the input EXR file.
+        output_path (str): Path to save the output PNG file.
+    """
+
+    exr_file = OpenEXR.InputFile(input_path)
+    dw = exr_file.header()['dataWindow']
+    size = (dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1)
+
+    # Read the three color channels as 32-bit floats
+    redstr = exr_file.channel('R', Imath.PixelType(Imath.PixelType.FLOAT))
+    greenstr = exr_file.channel('G', Imath.PixelType(Imath.PixelType.FLOAT))
+    bluestr = exr_file.channel('B', Imath.PixelType(Imath.PixelType.FLOAT))
+
+    # Convert the binary data to numpy arrays
+    red = np.frombuffer(redstr, dtype=np.float32).reshape(size[1], size[0])
+    green = np.frombuffer(greenstr, dtype=np.float32).reshape(size[1], size[0])
+    blue = np.frombuffer(bluestr, dtype=np.float32).reshape(size[1], size[0])
+
+    # Stack the channels to form an image array
+    img = np.stack([red, green, blue], axis=-1)
+
+    # Normalize the image array to the range [0, 255]
+    img = (img - img.min()) / (img.max() - img.min()) * 255.0
+    img = img.astype(np.uint8)
+
+    # Create a PIL image from the numpy array
+    img = Image.fromarray(img)
+
+    # Save the image as PNG
+    img.save(output_path)
+
+
 @validate_file_paths
 def read_images(fpath_1: str, fpath_2: str) -> tuple[np.ndarray, np.ndarray]:
     """
     Helper function for reading images correctly independent of image format.
 
     Parameters:
-    fpath_1 (str): Path to the first image file.
-    fpath_2 (str): Path to the second image file.
+        fpath_1 (str): Path to the first image file.
+        fpath_2 (str): Path to the second image file.
 
     Returns:
-    tuple: Two images read from the provided file paths.
+        tuple: Two images read from the provided file paths.
     """
     if '.exr' in fpath_1:
         image_1 = read_exr(fpath_1)
@@ -63,11 +101,11 @@ def simulate_mosaicing_rggb(image: np.ndarray, blend: float = None) -> np.ndarra
     Process a simulated image through a RGGB Bayer pattern in order to simulate mosaicing.
 
     Parameters:
-    image (numpy.ndarray): Input image.
-    blend (float, optional): Blending factor for the final image.
+        image (numpy.ndarray): Input image.
+        blend (float, optional): Blending factor for the final image.
 
     Returns:
-    numpy.ndarray: Image after simulating mosaicing.
+        numpy.ndarray: Image after simulating mosaicing.
     """
     # Convert the image to 8-bit if it's not already
     if image.dtype != np.uint8:
@@ -98,6 +136,42 @@ def simulate_mosaicing_rggb(image: np.ndarray, blend: float = None) -> np.ndarra
     return demosaiced_image
 
 
+def manual_demosaic(image: NDArray) -> NDArray:
+    """
+    Manually demosaic an image by iterating over each pixel and appending them to rgb arrays and reassembling a full
+    image. This can be useful rather than using cv2 for debugging and reliability purposes.
+
+    Parameters:
+        image (numpy.ndarray): Input image.
+
+    Returns:
+        rgb_image (numpy.ndarray): Output image (demosaiced)
+    """
+    # Define initial variables
+    height, width = image.shape
+    new_height = height // 2
+    new_width = width // 2
+    rgb_image = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+
+    # Loop over all pixels and sort them into appropriate arrays, adding them to the final RGB image.
+    for y in range(new_height):
+        for x in range(new_width):
+            r = image[2 * y, 2 * x]
+            g1 = image[2 * y, 2 * x + 1]
+            g2 = image[2 * y + 1, 2 * x]
+            b = image[2 * y + 1, 2 * x + 1]
+            g = (g1 + g2) // 2
+            rgb_image[y, x] = [r, g, b]
+
+    # Handle the case where the dimensions are odd
+    if height % 2 != 0:
+        rgb_image = np.vstack((rgb_image, np.zeros((1, new_width, 3), dtype=np.uint8)))
+    if width % 2 != 0:
+        rgb_image = np.hstack((rgb_image, np.zeros((new_height + (height % 2), 1, 3), dtype=np.uint8)))
+
+    return rgb_image
+
+
 @validate_area
 def process_images(
         img1: NDArray[Tuple[int, int, int]],
@@ -108,15 +182,15 @@ def process_images(
     Normalize, remosaic, greyscale, colour shift etc. input images.
 
     Parameters:
-    img1 (NDArray[Tuple[int, int, int]]): The first input image.
-    img2 (NDArray[Tuple[int, int, int]]): The second input image.
-    area (List[List[int]]): List of coordinates for cropping the images.
-                            Format: [[x1, y1, x2, y2], [x1, y1, x2, y2]]
-                            where the first list is for img1 and the second is for img2.
+        img1 (NDArray[Tuple[int, int, int]]): The first input image.
+        img2 (NDArray[Tuple[int, int, int]]): The second input image.
+        area (List[List[int]]): List of coordinates for cropping the images.
+                                Format: [[x1, y1, x2, y2], [x1, y1, x2, y2]]
+                                where the first list is for img1 and the second is for img2.
 
     Returns:
-    Tuple[NDArray[Tuple[int, int, int]], NDArray[Tuple[int, int, int]]]:
-    The processed images after normalization and cropping.
+        Tuple[NDArray[Tuple[int, int, int]], NDArray[Tuple[int, int, int]]]:
+        The processed images after normalization and cropping.
     """
     # Crop images to regions of interest
     img1 = img1[area[0][1]:area[0][3], area[0][0]:area[0][2]]
@@ -142,11 +216,11 @@ def get_colour_histograms(img_data: NDArray[Tuple[int, int, int]]) -> Tuple[np.h
     Process image data and separate into each colour channel, enabling it to be plotted separately.
 
     Parameters:
-    img_data (NDArray[Tuple[int, int, int]]): The input image data.
+        img_data (NDArray[Tuple[int, int, int]]): The input image data.
 
     Returns:
-    Tuple[np.histogram, np.histogram, np.histogram]:
-    Histograms for the red, green, and blue channels.
+        Tuple[np.histogram, np.histogram, np.histogram]:
+        Histograms for the red, green, and blue channels.
     """
     # Start by ensuring that img data goes from 0 to 255
     img_data = cv2.normalize(img_data, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
@@ -167,11 +241,11 @@ def manual_colour_adjust(img_in: NDArray[Tuple[int, int, int]], rgb_arr: List) -
     Manually adjust the colours of a cv2 uint8 image array.
 
     Parameters:
-    img_in (numpy.ndarray): Input image array.
-    rgb_arr (list or numpy.ndarray): List or array of RGB adjustments.
+        img_in (numpy.ndarray): Input image array.
+        rgb_arr (list or numpy.ndarray): List or array of RGB adjustments.
 
     Returns:
-    numpy.ndarray: Colour-adjusted image array.
+        numpy.ndarray: Colour-adjusted image array.
     """
     rgb_arr = np.array(rgb_arr)
 
@@ -199,11 +273,11 @@ def white_balance_adjust(
     Adjust the white balance of the first image to match the second image.
 
     Parameters:
-    img1 (numpy.ndarray): First input image.
-    img2 (numpy.ndarray): Second input image to match white balance.
+        img1 (numpy.ndarray): First input image.
+        img2 (numpy.ndarray): Second input image to match white balance.
 
     Returns:
-    numpy.ndarray: White balance adjusted image.
+        numpy.ndarray: White balance adjusted image.
     """
     # Convert images to LAB color space
     img1_lab = cv2.cvtColor(img1, cv2.COLOR_BGR2LAB)
@@ -232,12 +306,12 @@ def auto_colour_adjust(
     Adjust the colours of img1 to suit img2 by finding the median peaks of each channel between images.
 
     Parameters:
-    img1 (numpy.ndarray): First input image.
-    img2 (numpy.ndarray): Second input image to match colours.
-    blend (float, optional): Blending factor for the final image.
+        img1 (numpy.ndarray): First input image.
+        img2 (numpy.ndarray): Second input image to match colours.
+        blend (float, optional): Blending factor for the final image.
 
     Returns:
-    numpy.ndarray: Colour-adjusted image.
+        numpy.ndarray: Colour-adjusted image.
     """
     # Convert images to LAB colour space and split into LAB channels
     img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2Lab)
@@ -273,11 +347,11 @@ def match_histograms(
     Match the histograms from a source to a template.
 
     Parameters:
-    source (numpy.ndarray): Source image.
-    template (numpy.ndarray): Template image.
+        img1 (numpy.ndarray): Source image.
+        img2 (numpy.ndarray): Template image.
 
     Returns:
-    numpy.ndarray: Image with matched histograms.
+        numpy.ndarray: Image with matched histograms.
     """
     old_shape = img1.shape
     source = img1.ravel()
@@ -304,11 +378,11 @@ def simulate_basic_isp(img1, img2):
     Simulate a basic Image Signal Processor (ISP) pipeline.
 
     Parameters:
-    img1 (numpy.ndarray): The first image.
-    img2 (numpy.ndarray): The second image.
+        img1 (numpy.ndarray): The first image.
+        img2 (numpy.ndarray): The second image.
 
     Returns:
-    numpy.ndarray: The processed image after ISP simulation.
+        numpy.ndarray: The processed image after ISP simulation.
     """
     # If images are not the same size, then reshape
     if img1.shape[0] != img2.shape[0] or img1.shape[1] != img2.shape[1]:
@@ -325,7 +399,16 @@ def simulate_basic_isp(img1, img2):
 
 
 def reshape_img(img1, img2):
-    """Reshape img2 to match the dimensions of img1"""
+    """
+    Reshape img2 to match the dimensions of img1.
+
+    Parameters:
+        img1 (numpy.ndarray): The first image.
+        img2 (numpy.ndarray): The second image.
+
+    Returns:
+        numpy.ndarray: The processed image after resizing.
+    """
     img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
 
     return img2

@@ -66,6 +66,43 @@ def view_image(img):
     plt.show()
 
 
+def stb2rgb(image: NDArray, view: bool = False):
+    """
+    Outputs and optionally displays a .stb file in RGB format.
+
+    Parameters:
+        image (numpy.ndarray): The image to be viewed.
+        view (bool): Bool flag to visualise the image, if True.
+
+    Returns:
+        balanced_image (numpy.ndarray): The .stb image converted into 8bit RGB.
+    """
+
+    # Convert the RGGB Bayer pattern to an RGB image using OpenCV
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BAYER_GRBG2RGB)
+
+    # Adjust white balance. This calculates the average color of the image. It's crude so won't be fully correct
+    # or replicate the algorithm which is performed within the Sony signal processing chain, but as this is just
+    # for observation purposes, this was acceptable for me.
+    avg_color_per_row = np.average(rgb_image, axis=0)
+    avg_color = np.average(avg_color_per_row, axis=0)
+    balanced_image = rgb_image / avg_color * 128
+
+    balanced_image = cv2.normalize(balanced_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+    # cv2 defaults to BGR for some inexplicable reason
+    balanced_image = cv2.cvtColor(balanced_image, cv2.COLOR_BGR2RGB)
+
+    # Display the image using imshow, if view is passed as true
+    if view:
+        plt.imshow(balanced_image)
+        plt.grid(False)
+        plt.show()
+
+    # Optionally return the 8bit RGB image for further processing
+    return balanced_image
+
+
 def plot_lineout(img, line):
     """
     Plot the lineout of a specific row in the image.
