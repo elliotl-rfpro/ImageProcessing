@@ -66,6 +66,27 @@ def view_image(img):
     plt.show()
 
 
+def view_raw(image: NDArray, title: str = '') -> None:
+    """
+    Normalise a .RAW image loaded as a np array between 0 and 255 in uint8 type, then simply plot using pyplot.
+
+    Parameters:
+        image (numpy.ndarray): The input image, which is a NumPy array.
+        title (str): The title of the plot.
+    """
+    # Normalize the image to the range [0, 1]
+    normalized_image = cv2.normalize(image, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+
+    # Convert the normalized image to 8-bit
+    rgb_image = (normalized_image * 255).astype(np.uint8)
+
+    # View image
+    plt.imshow(rgb_image)
+    plt.title(title)
+    plt.grid(False)
+    plt.show()
+
+
 def stb2rgb(image: NDArray, view: bool = False):
     """
     Outputs and optionally displays a .stb file in RGB format.

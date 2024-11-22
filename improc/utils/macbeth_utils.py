@@ -40,28 +40,7 @@ colour_names_portrait = [
 ]
 
 
-def view_raw(image: NDArray, title: str = '') -> None:
-    """
-    Normalise a .RAW image loaded as a np array between 0 and 255 in uint8 type, then simply plot using pyplot.
-
-    Parameters:
-        image (numpy.ndarray): The input image, which is a NumPy array.
-        title (str): The title of the plot.
-    """
-    # Normalize the image to the range [0, 1]
-    normalized_image = cv2.normalize(image, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
-
-    # Convert the normalized image to 8-bit
-    rgb_image = (normalized_image * 255).astype(np.uint8)
-
-    # View image
-    plt.imshow(rgb_image)
-    plt.title(title)
-    plt.grid(False)
-    plt.show()
-
-
-def display_colors(image, title: str, orientation: str = 'landscape'):
+def display_colours(image, title: str, orientation: str = 'landscape'):
     """
     Visualize different Macbeth charts.
 
@@ -277,9 +256,18 @@ def apply_colour_filters(subregions: List, rgb_weights: List) -> NDArray:
     """
     filtered_img = []
     for subregion in subregions:
-        r_new = subregion[0] * rgb_weights[0] + subregion[1] * rgb_weights[1] + subregion[2] * rgb_weights[2]
-        g_new = subregion[0] * rgb_weights[3] + subregion[1] * rgb_weights[4] + subregion[2] * rgb_weights[5]
-        b_new = subregion[0] * rgb_weights[6] + subregion[1] * rgb_weights[7] + subregion[2] * rgb_weights[8]
+        r_new = (subregion[0] * rgb_weights[0] +
+                 subregion[1] * rgb_weights[1] +
+                 subregion[2] * rgb_weights[2]) + \
+                 rgb_weights[9]
+        g_new = (subregion[0] * rgb_weights[3] +
+                 subregion[1] * rgb_weights[4] +
+                 subregion[2] * rgb_weights[5]) + \
+                 rgb_weights[10]
+        b_new = (subregion[0] * rgb_weights[6] +
+                 subregion[1] * rgb_weights[7] +
+                 subregion[2] * rgb_weights[8]) + \
+                 rgb_weights[11]
         filtered_img.append([r_new, g_new, b_new])
 
     return np.array(filtered_img)
@@ -291,16 +279,34 @@ def apply_global_filter(image: NDArray, rgb_weights: List) -> NDArray:
 
     Parameters:
         image (numpy.ndarray): The input image
-        rgb_weights (list): List of RGB weightings.
+        rgb_weights (list): List of RGB weightings including global scaling factors.
 
     Returns:
         image (numpy.ndarray): the filtered image.
     """
-    image[:, :, 0] = image[:, :, 0] * rgb_weights[0] + image[:, :, 1] * rgb_weights[1] + image[:, :, 2] * rgb_weights[2]
-    image[:, :, 1] = image[:, :, 0] * rgb_weights[3] + image[:, :, 1] * rgb_weights[4] + image[:, :, 2] * rgb_weights[5]
-    image[:, :, 2] = image[:, :, 0] * rgb_weights[6] + image[:, :, 1] * rgb_weights[7] + image[:, :, 2] * rgb_weights[8]
+    # Create a copy of the image to avoid modifying the original
+    filtered_image = image.copy()
 
-    return image
+    # Apply the colour filters with global scaling factors
+    filtered_image[:, :, 0] = (image[:, :, 0] * rgb_weights[0] +
+                               image[:, :, 1] * rgb_weights[1] +
+                               image[:, :, 2] * rgb_weights[2] +
+                               rgb_weights[9])
+
+    filtered_image[:, :, 1] = (image[:, :, 0] * rgb_weights[3] +
+                               image[:, :, 1] * rgb_weights[4] +
+                               image[:, :, 2] * rgb_weights[5] +
+                               rgb_weights[10])
+
+    filtered_image[:, :, 2] = (image[:, :, 0] * rgb_weights[6] +
+                               image[:, :, 1] * rgb_weights[7] +
+                               image[:, :, 2] * rgb_weights[8] +
+                               rgb_weights[11])
+
+    # Ensure values are within the valid range for uint8 format
+    filtered_image = np.clip(filtered_image, 0, 255).astype(np.uint8)
+
+    return filtered_image
 
 
 def apply_channel_scaling(image: NDArray, r_scale: float, g_scale: float, b_scale: float) -> NDArray:
@@ -323,21 +329,24 @@ def eval_filters(rgb_weights: List, rgb1: List, rgb2: List) -> np.signedinteger:
     Evaluate the applied filters. Used as a metric to determine the optimal colour filter settings.
 
     Parameters:
-        rgb_weights (list):
+        rgb_weights (list): List of weights including global shifts.
         rgb1 (list): List of RGB values.
         rgb2 (list): List of RGB values.
 
     Returns:
-        numpy.signedinteger: integer value which corresponds to the performance of the current filter settings.
+        numpy.signedinteger: Integer value which corresponds to the performance of the current filter settings.
     """
     r_filter = rgb_weights[:3]
     g_filter = rgb_weights[3:6]
-    b_filter = rgb_weights[6:]
+    b_filter = rgb_weights[6:9]
+    r_shift = rgb_weights[9]
+    g_shift = rgb_weights[10]
+    b_shift = rgb_weights[11]
 
     estimated_rgb2 = np.zeros_like(rgb1)
-    estimated_rgb2[:, 0] = np.dot(rgb1, r_filter)
-    estimated_rgb2[:, 1] = np.dot(rgb1, g_filter)
-    estimated_rgb2[:, 2] = np.dot(rgb1, b_filter)
+    estimated_rgb2[:, 0] = np.dot(rgb1, r_filter) + r_shift
+    estimated_rgb2[:, 1] = np.dot(rgb1, g_filter) + g_shift
+    estimated_rgb2[:, 2] = np.dot(rgb1, b_filter) + b_shift
 
     return np.sum((estimated_rgb2 - rgb2) ** 2)
 
@@ -354,6 +363,15 @@ def plot_differences(image1: NDArray, image2: NDArray, title: str = '') -> NDArr
     Returns:
         diff (numpy.ndarray): The array of differences between each region of the two images (RGB)
     """
+    # Work out whether the images are in HDR or u8bit format and normalize accordingly to have agnostic input arrays.
+    if isinstance(image1[0][0], np.uint8) or isinstance(image1[0][0], int):
+        pass
+    else:
+        image1 = cv2.normalize(image1, None, 0, 255, cv2.NORM_MINMAX).astype(np.float32)
+        image2 = cv2.normalize(image2, None, 0, 255, cv2.NORM_MINMAX).astype(np.float32)
+        image1 = np.clip(image1, 0, 255)
+        image2 = np.clip(image2, 0, 255)
+
     # Calculate difference between arrays and percentage differences
     diff = np.array(image1) - np.array(image2)
     diff_pcent = []
@@ -409,7 +427,7 @@ def plot_differences(image1: NDArray, image2: NDArray, title: str = '') -> NDArr
     return diff
 
 
-def process_macbeth_colours(chart: NDArray, rows: int, columns: int, regions: List, avg: bool = False) -> list:
+def process_macbeth_colours(chart: NDArray, rows: int, columns: int, regions: List, ao: str, avg: bool = False) -> list:
     """
     Load and analyze a reference Macbeth chart.
 
@@ -418,7 +436,8 @@ def process_macbeth_colours(chart: NDArray, rows: int, columns: int, regions: Li
         rows (int): Number of rows within the Macbeth chart image.
         columns (int): Number of columns within the Macbeth chart image.
         regions (List): The regions of the colours within the Macbeth chart image. Manually defined as [x1, y1, x2, y2].
-        avg (bool): Bool whether to return averaged (True) or un-averaged (False) colour data
+        ao (str): Flag for 'array orientation' that enables a switch case between [x1, y1] and [y1, x1] formats.
+        avg (bool): Bool whether to return averaged (True) or un-averaged (False) colour data.
 
     Returns:
         list: A list containing either the average luminance value (if .RAW. input array), or the average of each
@@ -434,7 +453,12 @@ def process_macbeth_colours(chart: NDArray, rows: int, columns: int, regions: Li
         for column in range(columns):
             # Crop the current square from the image using the calculated coordinates
             region = regions[i]
-            current_colour = chart[region[0]:region[2], region[1]:region[3]]
+            if ao == 'xy':
+                current_colour = chart[region[0]:region[2], region[1]:region[3]]
+            elif ao == 'yx':
+                current_colour = chart[region[1]:region[3], region[0]:region[2]]
+            else:
+                raise ValueError("ao param requires values of 'xy' or 'yx'.")
 
             if avg:
                 if len(chart.shape) == 3 and chart.shape[2] == 3:
